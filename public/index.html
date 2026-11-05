@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ElevenLabs Voice Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>🎙️ ElevenLabs Voice Studio</h1>
+  <nav>
+    <button class="tab active" data-tab="settings">1. API & Giọng</button>
+    <button class="tab" data-tab="clone">2. Clone giọng</button>
+    <button class="tab" data-tab="script">3. Kịch bản & Gán giọng</button>
+    <button class="tab" data-tab="generate">4. Tạo voice & Xuất WAV</button>
+  </nav>
+</header>
+
+<main>
+  <!-- TAB 1 -->
+  <section id="tab-settings" class="panel active">
+    <div class="card">
+      <h2>API Key ElevenLabs</h2>
+      <div class="row">
+        <input id="apiKey" type="password" placeholder="Dán xi-api-key của bạn (sk_...)" autocomplete="off">
+        <button id="toggleKey" class="ghost">👁</button>
+        <button id="connectBtn" class="primary">Kết nối</button>
+      </div>
+      <p id="accountInfo" class="muted">Chưa kết nối. Key chỉ lưu trong trình duyệt của máy này.</p>
+    </div>
+
+    <div class="card">
+      <div class="row between">
+        <h2>Danh sách giọng</h2>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="onlyCloned" checked> Chỉ giọng clone / của tôi</label>
+          <button id="refreshVoices" class="ghost">⟳ Làm mới</button>
+        </div>
+      </div>
+      <div id="voiceList" class="voice-grid"><p class="muted">Kết nối API để tải giọng.</p></div>
+    </div>
+  </section>
+
+  <!-- TAB 2 -->
+  <section id="tab-clone" class="panel">
+    <div class="card">
+      <h2>Clone giọng (Instant Voice Cloning)</h2>
+      <p class="muted">Tải lên 1 hoặc nhiều mẫu âm thanh sạch (khuyến nghị tổng 1–3 phút, MP3/WAV/M4A). Giọng sẽ được tạo trên tài khoản ElevenLabs của bạn.</p>
+      <label>Tên giọng *</label>
+      <input id="cloneName" placeholder="VD: VINH HOA - bé gái">
+      <label>Mô tả</label>
+      <textarea id="cloneDesc" rows="2" placeholder="Trẻ con mà bề trên, rõ chữ, hơi kiêu..."></textarea>
+      <label>File mẫu *</label>
+      <div id="dropZone" class="drop">Kéo thả file audio vào đây hoặc <u>bấm để chọn</u>
+        <input id="cloneFiles" type="file" accept="audio/*,video/*" multiple hidden>
+      </div>
+      <ul id="cloneFileList" class="file-list"></ul>
+      <label class="check"><input type="checkbox" id="cloneDenoise"> Lọc tiếng ồn nền (remove background noise)</label>
+      <div class="row">
+        <button id="cloneBtn" class="primary">🧬 Tạo giọng clone</button>
+        <span id="cloneStatus" class="muted"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 3 -->
+  <section id="tab-script" class="panel">
+    <div class="card">
+      <h2>Tải file kịch bản</h2>
+      <p class="muted">Hỗ trợ <b>.xlsx</b> (tự nhận diện cột STT / Cảnh / Nhân Vật / Lời Thoại / Lời thoại có tag), <b>.csv</b>, hoặc <b>.txt</b> dạng <code>TÊN NHÂN VẬT: lời thoại</code>.</p>
+      <div class="row">
+        <input id="scriptFile" type="file" accept=".xlsx,.csv,.txt,.tsv">
+        <span id="scriptInfo" class="muted"></span>
+      </div>
+      <div id="columnMap" class="col-map hidden"></div>
+    </div>
+
+    <div class="card">
+      <div class="row between">
+        <h2>Gán giọng cho nhân vật</h2>
+        <button id="autoMatch" class="ghost">✨ Tự ghép theo tên</button>
+      </div>
+      <p class="muted">Tên được chuẩn hoá: bỏ “(V.O.)”, “(O.S.)”. Lời thoại nhiều người (VD “LINH + MARC”) mặc định dùng giọng của người đầu tiên nếu không gán riêng.</p>
+      <div id="charList"><p class="muted">Chưa có kịch bản.</p></div>
+    </div>
+
+    <div class="card">
+      <h2>Xem trước lời thoại <span id="lineCount" class="muted"></span></h2>
+      <div class="table-wrap"><table id="linesTable"></table></div>
+    </div>
+  </section>
+
+  <!-- TAB 4 -->
+  <section id="tab-generate" class="panel">
+    <div class="card">
+      <h2>Cấu hình xuất</h2>
+      <div class="grid2">
+        <div>
+          <label>Model</label>
+          <select id="modelSelect"><option value="eleven_v3">eleven_v3</option></select>
+          <label>Chất lượng WAV (tự hạ cấp nếu gói không hỗ trợ)</label>
+          <select id="formatSelect">
+            <option value="pcm_48000">WAV 48 kHz / 16-bit (cao nhất)</option>
+            <option value="pcm_44100" selected>WAV 44.1 kHz / 16-bit</option>
+            <option value="pcm_24000">WAV 24 kHz / 16-bit</option>
+          </select>
+          <label class="check"><input type="checkbox" id="useTagged" checked> Dùng cột lời thoại có tag cảm xúc ([calm], [whispering]…)</label>
+          <label class="check"><input type="checkbox" id="skipExisting" checked> Bỏ qua file đã tồn tại</label>
+        </div>
+        <div>
+          <label>Ổn định (stability): <b id="vStabV">0.5</b></label>
+          <input type="range" id="vStab" min="0" max="1" step="0.05" value="0.5">
+          <label>Giống giọng gốc (similarity): <b id="vSimV">0.75</b></label>
+          <input type="range" id="vSim" min="0" max="1" step="0.05" value="0.75">
+          <label>Phong cách (style): <b id="vStyleV">0</b></label>
+          <input type="range" id="vStyle" min="0" max="1" step="0.05" value="0">
+          <label>Tốc độ (speed): <b id="vSpeedV">1</b></label>
+          <input type="range" id="vSpeed" min="0.7" max="1.2" step="0.05" value="1">
+          <label class="check"><input type="checkbox" id="vBoost" checked> Speaker boost</label>
+        </div>
+      </div>
+      <label>Thư mục xuất</label>
+      <div class="row">
+        <input id="outFolder" placeholder="Mặc định: thư mục output_wav trong app">
+        <button id="pickFolder" class="ghost">📁 Chọn…</button>
+        <button id="openFolder" class="ghost">Mở</button>
+      </div>
+      <div class="grid2">
+        <div>
+          <label>Thư mục con</label>
+          <select id="subMode">
+            <option value="none">Không — tất cả chung 1 thư mục</option>
+            <option value="character">Theo nhân vật</option>
+            <option value="scene">Theo cảnh</option>
+          </select>
+        </div>
+        <div>
+          <label>Mẫu tên file</label>
+          <input id="namePattern" value="{stt}_{scene}_{char}">
+          <small class="muted">Biến: {stt} {scene} {char} {text}</small>
+        </div>
+      </div>
+      <label>Số request song song</label>
+      <select id="concurrency"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option></select>
+    </div>
+
+    <div class="card">
+      <div class="row between">
+        <h2>Tiến trình</h2>
+        <div class="row">
+          <button id="startGen" class="primary">▶ Tạo toàn bộ</button>
+          <button id="stopGen" class="danger" disabled>■ Dừng</button>
+        </div>
+      </div>
+      <div class="progress"><div id="progBar"></div></div>
+      <p id="progText" class="muted">Sẵn sàng.</p>
+      <div class="table-wrap tall"><table id="genTable"></table></div>
+    </div>
+  </section>
+</main>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
