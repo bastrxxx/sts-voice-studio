@@ -101,7 +101,7 @@
           <select id="modelSelect"><option value="eleven_v3">eleven_v3</option></select>
           <label>Chất lượng WAV (tự hạ cấp nếu gói không hỗ trợ)</label>
           <select id="formatSelect">
-            <option value="pcm_48000">WAV 48 kHz / 16-bit (cao nhất)</option>
+                <option value="pcm_48000">WAV 48 kHz / 16-bit (cao nhất)</option>
             <option value="pcm_44100" selected>WAV 44.1 kHz / 16-bit</option>
             <option value="pcm_24000">WAV 24 kHz / 16-bit</option>
           </select>
@@ -122,10 +122,10 @@
       </div>
       <label>Thư mục xuất</label>
       <div class="row">
-        <input id="outFolder" placeholder="Mặc định: thư mục output_wav trong app">
+        <input id="outFolder" readonly placeholder="Chưa chọn thư mục — bấm 📁 Chọn…">
         <button id="pickFolder" class="ghost">📁 Chọn…</button>
-        <button id="openFolder" class="ghost">Mở</button>
       </div>
+      <small id="fsHint" class="muted"></small>
       <div class="grid2">
         <div>
           <label>Thư mục con</label>

@@ -21,7 +21,7 @@ FileUtils.mkdir_p(DEFAULT_OUTPUT_DIR)
 server = WEBrick::HTTPServer.new(
   Port: PORT,
   BindAddress: '127.0.0.1',
-  DocumentRoot: File.join(ROOT_DIR, 'public'),
+  DocumentRoot: File.join(ROOT_DIR, 'docs'),
   AccessLog: [],
   Logger: WEBrick::Log.new($stderr, WEBrick::Log::WARN)
 )

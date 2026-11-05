@@ -1,10 +1,11 @@
 /* ElevenLabs Voice Studio – frontend */
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
-const API = '/eleven';
 const FORMAT_CHAIN = ['pcm_48000', 'pcm_44100', 'pcm_24000', 'pcm_22050', 'pcm_16000'];
 
 const S = {
+  base: 'https://api.elevenlabs.io',
+  dir: null, // FileSystemDirectoryHandle
   apiKey: localStorage.getItem('xi_key') || '',
   voices: [],
   models: [],
@@ -45,7 +46,19 @@ async function errText(res) {
 
 async function xi(path, opts = {}) {
   if (!S.apiKey) throw new Error('Chưa nhập API key');
-  const res = await fetch(API + path, { ...opts, headers: { 'xi-api-key': S.apiKey, ...(opts.headers || {}) } });
+  const doFetch = () => fetch(S.base + path, { ...opts, headers: { 'xi-api-key': S.apiKey, ...(opts.headers || {}) } });
+  let res;
+  try {
+    res = await doFetch();
+  } catch (e) {
+    // Bị chặn CORS/mạng: nếu đang chạy qua server Ruby cục bộ thì thử đi qua proxy /eleven
+    if (S.base !== '/eleven' && /^https?:$/.test(location.protocol) && /localhost|127\.0\.0\.1/.test(location.hostname)) {
+      S.base = '/eleven';
+      res = await doFetch();
+    } else {
+      throw new Error('Không gọi được api.elevenlabs.io (mạng hoặc trình duyệt chặn): ' + e.message);
+    }
+  }
   if (!res.ok) {
     const e = new Error(`[${res.status}] ${await errText(res)}`);
     e.status = res.status;
@@ -54,11 +67,145 @@ async function xi(path, opts = {}) {
   return res;
 }
 
-async function local(path, body) {
-  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
-  const j = await res.json();
-  if (!j.ok && !j.cancelled) throw new Error(j.error || 'Lỗi server');
-  return j;
+/* ---------------- Ghi file vào thư mục (File System Access API) ---------------- */
+const FS_OK = 'showDirectoryPicker' in window;
+
+const idb = {
+  db: () => new Promise((ok, fail) => {
+    const r = indexedDB.open('voice-studio', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => fail(r.error);
+  }),
+  async get(k) { const d = await this.db(); return new Promise((ok) => { const q = d.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => ok(q.result); q.onerror = () => ok(null); }); },
+  async set(k, v) { const d = await this.db(); return new Promise((ok) => { const t = d.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = ok; t.onerror = ok; }); },
+};
+
+async function ensureDirPermission() {
+  if (!S.dir) return false;
+  const opt = { mode: 'readwrite' };
+  if ((await S.dir.queryPermission(opt)) === 'granted') return true;
+  return (await S.dir.requestPermission(opt)) === 'granted';
+}
+
+async function targetDir(subfolder) {
+  return subfolder ? S.dir.getDirectoryHandle(subfolder, { create: true }) : S.dir;
+}
+
+async function fileExists(subfolder, filename) {
+  if (!S.dir) return false;
+  try {
+    const d = subfolder ? await S.dir.getDirectoryHandle(subfolder) : S.dir;
+    await d.getFileHandle(filename);
+    return true;
+  } catch { return false; }
+}
+
+async function writeFile(subfolder, filename, blob) {
+  if (!S.dir) { // trình duyệt không hỗ trợ chọn thư mục -> tải xuống
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (subfolder ? subfolder + '_' : '') + filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    return a.download;
+  }
+  const d = await targetDir(subfolder);
+  const fh = await d.getFileHandle(filename, { create: true });
+  const w = await fh.createWritable();
+  await w.write(blob);
+  await w.close();
+  return `${S.dir.name}/${subfolder ? subfolder + '/' : ''}${filename}`;
+}
+
+/* ---------------- PCM -> WAV ---------------- */
+function pcmToWav(pcmBuf, rate, bits = 16, ch = 1) {
+  const len = pcmBuf.byteLength;
+  const h = new DataView(new ArrayBuffer(44));
+  const str = (o, s) => [...s].forEach((c, i) => h.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); h.setUint32(4, 36 + len, true); str(8, 'WAVE');
+  str(12, 'fmt '); h.setUint32(16, 16, true); h.setUint16(20, 1, true); h.setUint16(22, ch, true);
+  h.setUint32(24, rate, true); h.setUint32(28, rate * ch * bits / 8, true);
+  h.setUint16(32, ch * bits / 8, true); h.setUint16(34, bits, true);
+  str(36, 'data'); h.setUint32(40, len, true);
+  return new Blob([h.buffer, pcmBuf], { type: 'audio/wav' });
+}
+
+/* ---------------- Đọc .xlsx ngay trong trình duyệt ---------------- */
+async function readZip(buf) {
+  const dv = new DataView(buf);
+  const u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 70000); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('File không phải .xlsx hợp lệ');
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const dec = new TextDecoder();
+  const entries = {};
+  for (let n = 0; n < count; n++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true);
+    const csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), elen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+    const lo = dv.getUint32(p + 42, true);
+    const name = dec.decode(u8.subarray(p + 46, p + 46 + nlen));
+    const start = lo + 30 + dv.getUint16(lo + 26, true) + dv.getUint16(lo + 28, true);
+    entries[name] = { method, data: u8.subarray(start, start + csize) };
+    p += 46 + nlen + elen + clen;
+  }
+  return {
+    has: (name) => !!entries[name],
+    async text(name) {
+      const e = entries[name];
+      if (!e) return null;
+      if (e.method === 0) return dec.decode(e.data);
+      const stream = new Blob([e.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      return new Response(stream).text();
+    },
+  };
+}
+
+async function parseXlsx(buf) {
+  const zip = await readZip(buf);
+  const xml = (s) => new DOMParser().parseFromString(s, 'application/xml');
+  const tags = (node, name) => [...node.getElementsByTagNameNS('*', name)];
+  const textOf = (node) => tags(node, 't').map((t) => t.textContent).join('');
+
+  const shared = [];
+  const ss = await zip.text('xl/sharedStrings.xml');
+  if (ss) tags(xml(ss), 'si').forEach((si) => shared.push(textOf(si)));
+
+  const rels = {};
+  const relXml = await zip.text('xl/_rels/workbook.xml.rels');
+  if (relXml) tags(xml(relXml), 'Relationship').forEach((r) => { rels[r.getAttribute('Id')] = r.getAttribute('Target'); });
+
+  const wb = xml(await zip.text('xl/workbook.xml'));
+  const sheets = [];
+  const sheetEls = tags(wb, 'sheet');
+  for (let i = 0; i < sheetEls.length; i++) {
+    const el = sheetEls[i];
+    const rid = el.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || el.getAttribute('r:id');
+    let target = (rels[rid] || `worksheets/sheet${i + 1}.xml`).replace(/^\//, '');
+    if (!target.startsWith('xl/')) target = 'xl/' + target;
+    const sx = await zip.text(target);
+    if (!sx) continue;
+    const rows = [];
+    tags(xml(sx), 'c').forEach((c) => {
+      const m = /^([A-Z]+)(\d+)$/.exec(c.getAttribute('r') || '');
+      if (!m) return;
+      const col = [...m[1]].reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+      const row = +m[2] - 1;
+      const t = c.getAttribute('t');
+      const v = tags(c, 'v')[0]?.textContent ?? '';
+      const val = t === 's' ? (shared[+v] ?? '') : t === 'inlineStr' ? textOf(c) : v;
+      if (val === '') return;
+      (rows[row] ||= [])[col] = val;
+    });
+    sheets.push({ name: el.getAttribute('name'), rows: Array.from(rows, (r) => Array.from(r || [], (x) => x ?? '')) });
+  }
+  return sheets;
 }
 
 function blobToBase64(blob) {
@@ -204,9 +351,7 @@ $('#scriptFile').onchange = async (e) => {
   if (!f) return;
   try {
     if (/\.xlsx$/i.test(f.name)) {
-      const b64 = await blobToBase64(f);
-      const j = await local('/api/parse-xlsx', { data: b64 });
-      S.sheets = j.sheets;
+      S.sheets = await parseXlsx(await f.arrayBuffer());
     } else {
       const text = await f.text();
       S.sheets = [{ name: f.name, rows: parseDelimited(text, f.name) }];
@@ -397,7 +542,7 @@ async function testChar(k, btn) {
   $('#' + id + 'V').textContent = el.value;
   el.oninput = () => { $('#' + id + 'V').textContent = el.value; savePref(id, el.value); };
 });
-['outFolder', 'subMode', 'namePattern', 'formatSelect', 'concurrency'].forEach((id) => {
+['outFolder', 'subMode', 'namePattern', 'formatSelect', 'concurrency'].filter((id) => id !== 'outFolder').forEach((id) => {
   const el = $('#' + id);
   el.value = getPref(id, el.value);
   el.onchange = () => savePref(id, el.value);
@@ -405,10 +550,13 @@ async function testChar(k, btn) {
 $('#modelSelect').onchange = () => savePref('model', $('#modelSelect').value);
 
 $('#pickFolder').onclick = async () => {
-  const j = await local('/api/pick-folder');
-  if (j.folder) { $('#outFolder').value = j.folder; savePref('outFolder', j.folder); }
+  if (!FS_OK) return toast('Trình duyệt không hỗ trợ chọn thư mục. Hãy dùng Chrome hoặc Edge.', 'err');
+  try {
+    S.dir = await window.showDirectoryPicker({ id: 'voice-out', mode: 'readwrite' });
+    $('#outFolder').value = S.dir.name;
+    await idb.set('outDir', S.dir);
+  } catch (e) { if (e.name !== 'AbortError') toast(e.message, 'err'); }
 };
-$('#openFolder').onclick = () => local('/api/open-folder', { folder: $('#outFolder').value });
 
 function isV3(model) { return /eleven_v3|v4/.test(model); }
 
@@ -478,10 +626,9 @@ function setStatus(l, txt, cls) {
 async function genOne(l) {
   const vid = resolveVoice(l.char);
   if (!vid) { setStatus(l, 'Bỏ qua (chưa gán giọng)', 'st-err'); return 'skip'; }
-  const filename = outName(l), subfolder = outSub(l), folder = $('#outFolder').value.trim();
-  if ($('#skipExisting').checked) {
-    const ex = await local('/api/exists', { folder, subfolder, filename });
-    if (ex.exists) { setStatus(l, 'Đã có – bỏ qua', 'st-ok'); return 'ok'; }
+  const filename = outName(l), subfolder = outSub(l);
+  if ($('#skipExisting').checked && await fileExists(subfolder, filename)) {
+    setStatus(l, 'Đã có – bỏ qua', 'st-ok'); return 'ok';
   }
   const pref = $('#formatSelect').value;
   let chain = FORMAT_CHAIN.slice(FORMAT_CHAIN.indexOf(S.workingFormat || pref));
@@ -491,11 +638,11 @@ async function genOne(l) {
     setStatus(l, `Đang tạo (${fmt})…`, 'st-run');
     try {
       const res = await tts(vid, prepText(l), fmt);
-      const blob = await res.blob();
-      const b64 = await blobToBase64(blob);
-      const j = await local('/api/save-wav', { folder, subfolder, filename, audio_base64: b64, source_format: fmt });
+      const pcm = await res.arrayBuffer();
+      const rate = +fmt.split('_')[1];
+      const saved = await writeFile(subfolder, filename, pcmToWav(pcm, rate));
       S.workingFormat = fmt;
-      setStatus(l, `✔ ${fmt.replace('pcm_', '')} Hz → ${j.path.split('/').slice(-2).join('/')}`, 'st-ok');
+      setStatus(l, `✔ ${rate} Hz → ${saved}`, 'st-ok');
       return 'ok';
     } catch (e) {
       const msg = e.message || '';
@@ -520,6 +667,10 @@ async function genOne(l) {
 $('#startGen').onclick = async () => {
   if (!S.apiKey) return toast('Chưa kết nối API', 'err');
   if (!S.lines.length) return toast('Chưa tải kịch bản', 'err');
+  if (FS_OK) {
+    if (!S.dir) return toast('Chọn thư mục xuất trước (📁 Chọn…)', 'err');
+    if (!(await ensureDirPermission())) return toast('Chưa được cấp quyền ghi vào thư mục', 'err');
+  } else if (!confirm('Trình duyệt này không hỗ trợ ghi vào thư mục — các file WAV sẽ được TẢI XUỐNG từng file. Tiếp tục?')) return;
   const missing = charStats().filter(([k]) => !resolveVoice(k)).map(([k]) => k);
   if (missing.length && !confirm(`Các nhân vật chưa gán giọng sẽ bị bỏ qua:\n${missing.join(', ')}\n\nTiếp tục?`)) return;
 
@@ -550,7 +701,8 @@ $('#startGen').onclick = async () => {
 $('#stopGen').onclick = () => { S.stop = true; $('#stopGen').disabled = true; };
 
 /* ---------------- init ---------------- */
-fetch('/api/status').then((r) => r.json()).then((j) => {
-  $('#outFolder').placeholder = 'Mặc định: ' + j.default_output_dir;
-}).catch(() => {});
+$('#fsHint').textContent = FS_OK
+  ? 'File WAV được ghi thẳng vào thư mục bạn chọn (trình duyệt sẽ hỏi quyền).'
+  : '⚠ Trình duyệt này không hỗ trợ chọn thư mục — file sẽ được tải xuống. Nên dùng Chrome hoặc Edge.';
+if (FS_OK) idb.get('outDir').then((h) => { if (h) { S.dir = h; $('#outFolder').value = h.name; } }).catch(() => {});
 if (S.apiKey) connect();
