@@ -32,6 +32,17 @@ $('#logoutBtn').onclick = () => {
   location.reload();
 };
 
+/* Chặn mọi thao tác trong Studio khi chưa đăng nhập (kể cả khi CSS bị lỗi/cache cũ) */
+function lock() {
+  document.body.classList.add('locked');
+  $('#app').hidden = true;
+}
+['click', 'change', 'input', 'submit', 'keydown', 'drop'].forEach((ev) => {
+  $('#app').addEventListener(ev, (e) => {
+    if (!isAuthed()) { e.stopImmediatePropagation(); e.preventDefault(); lock(); }
+  }, true);
+});
+
 /* ================= STATE ================= */
 const FORMAT_CHAIN = ['pcm_48000', 'pcm_44100', 'pcm_24000', 'pcm_22050', 'pcm_16000'];
 const S = {
@@ -80,6 +91,7 @@ async function errText(res) {
 }
 
 async function xi(path, opts = {}) {
+  if (!isAuthed()) { lock(); throw new Error('Cần đăng nhập'); }
   if (!S.apiKey) throw new Error('Chưa nhập API key');
   const doFetch = () => fetch(S.base + path, { ...opts, headers: { 'xi-api-key': S.apiKey, ...(opts.headers || {}) } });
   let res;
@@ -1064,7 +1076,9 @@ $('#stopGen').onclick = () => { S.stop = true; $('#stopGen').disabled = true; };
 /* ================= KHỞI ĐỘNG ================= */
 let started = false;
 function unlock() {
+  if (!isAuthed()) return lock();
   document.body.classList.remove('locked');
+  $('#app').hidden = false;
   if (started) return;
   started = true;
   buildVS('t'); buildVS('g');
@@ -1077,4 +1091,4 @@ function unlock() {
   renderHistory();
   if (S.apiKey) connect();
 }
-if (isAuthed()) unlock(); else $('#loginUser').focus();
+if (isAuthed()) unlock(); else { lock(); $('#loginUser').focus(); }
