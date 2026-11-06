@@ -280,16 +280,28 @@ const VS_DEF = { Stab: 0.5, Sim: 0.75, Style: 0, Speed: 1 };
 function buildVS(p) {
   const box = $(`.vs[data-prefix="${p}"]`);
   box.innerHTML = `
-    <label>Độ ổn định (Stability): <b id="${p}StabV"></b></label>
-    <input type="range" id="${p}Stab" min="0" max="1" step="0.05">
-    <small class="muted">Thấp = biểu cảm hơn · Cao = đều, ổn định. Model v3 chỉ dùng 0 / 0.5 / 1 (Creative / Natural / Robust).</small>
-    <label>Độ giống giọng gốc (Similarity): <b id="${p}SimV"></b></label>
-    <input type="range" id="${p}Sim" min="0" max="1" step="0.05">
-    <label>Phóng đại phong cách (Style exaggeration): <b id="${p}StyleV"></b></label>
-    <input type="range" id="${p}Style" min="0" max="1" step="0.05">
-    <label>Tốc độ (Speed): <b id="${p}SpeedV"></b></label>
-    <input type="range" id="${p}Speed" min="0.7" max="1.2" step="0.01">
-    <label class="check"><input type="checkbox" id="${p}Boost"> Speaker boost</label>`;
+    <div class="field">
+      <label>Độ ổn định <b id="${p}StabV" class="val"></b></label>
+      <input type="range" id="${p}Stab" min="0" max="1" step="0.05">
+      <div class="range-ends"><span>Biểu cảm hơn</span><span>Ổn định hơn</span></div>
+    </div>
+    <div class="field">
+      <label>Độ giống giọng gốc <b id="${p}SimV" class="val"></b></label>
+      <input type="range" id="${p}Sim" min="0" max="1" step="0.05">
+      <div class="range-ends"><span>Thấp</span><span>Cao</span></div>
+    </div>
+    <div class="field">
+      <label>Phóng đại phong cách <b id="${p}StyleV" class="val"></b></label>
+      <input type="range" id="${p}Style" min="0" max="1" step="0.05">
+      <div class="range-ends"><span>Không</span><span>Phóng đại</span></div>
+    </div>
+    <div class="field">
+      <label>Tốc độ <b id="${p}SpeedV" class="val"></b></label>
+      <input type="range" id="${p}Speed" min="0.7" max="1.2" step="0.01">
+      <div class="range-ends"><span>Chậm</span><span>Nhanh</span></div>
+    </div>
+    <label class="switch"><input type="checkbox" id="${p}Boost"><span></span> Speaker boost</label>
+    <small class="hint">Model v3 chỉ dùng độ ổn định 0 / 0.5 / 1 (Creative / Natural / Robust).</small>`;
   Object.keys(VS_DEF).forEach((k) => {
     const el = $('#' + p + k);
     el.value = getPref(p + k, VS_DEF[k]);
@@ -349,28 +361,41 @@ $('#clearKeyBtn').onclick = () => {
   $('#apiKey').value = '';
   $('#apiKey').type = 'password';
   $('#accountInfo').textContent = '🗑 Đã xoá API key. Chưa kết nối.';
+  setConn('off', 'Chưa kết nối');
   $$('.model-select').forEach((s) => { s.innerHTML = ''; });
   renderVoices(); renderChars(); fillVoiceSelects(); renderGenTable();
   toast('Đã xoá sạch API key', 'ok');
 };
+
+function setConn(state, text) {
+  const p = $('#connPill');
+  p.className = 'pill ' + state;
+  p.querySelector('.txt').textContent = text;
+  p.title = text;
+}
 
 async function connect() {
   S.apiKey = $('#apiKey').value.trim();
   if (!S.apiKey) return toast('Nhập API key', 'err');
   localStorage.setItem('xi_key', S.apiKey);
   $('#accountInfo').textContent = 'Đang kết nối…';
+  setConn('busy', 'Đang kết nối…');
   try {
+    let tier = '';
     try {
       const sub = await (await xi('/v1/user/subscription')).json();
+      tier = sub.tier || '';
       $('#accountInfo').innerHTML = `✅ Đã kết nối • Gói: <b>${esc(sub.tier)}</b> • Ký tự: ${(sub.character_count || 0).toLocaleString()} / ${(sub.character_limit || 0).toLocaleString()} • Giọng tối đa: ${sub.voice_limit ?? '?'}`;
     } catch (e) {
       if (e.status === 401 && !/permission/i.test(e.message)) throw e;
       $('#accountInfo').textContent = '✅ Đã kết nối (key không có quyền đọc thông tin gói).';
     }
     await Promise.all([loadVoices(), loadModels()]);
+    setConn('on', 'Đã kết nối' + (tier ? ' · ' + tier : ''));
     toast('Kết nối thành công', 'ok');
   } catch (e) {
     $('#accountInfo').textContent = '❌ ' + e.message;
+    setConn('err', 'Lỗi kết nối');
     toast(e.message, 'err');
   }
 }
@@ -403,7 +428,7 @@ const ownVoice = (v) => v.category !== 'premade';
 function renderVoices() {
   const only = $('#onlyCloned').checked, q = $('#voiceSearch').value.trim().toLowerCase();
   const list = S.voices.filter((v) => (!only || ownVoice(v)) && (!q || v.name.toLowerCase().includes(q)));
-  if (!list.length) { $('#voiceList').innerHTML = `<p class="muted">${S.apiKey ? 'Không có giọng nào.' : 'Kết nối API để tải giọng.'}</p>`; return; }
+  if (!list.length) { $('#voiceList').innerHTML = `<p class="empty">${S.apiKey ? 'Không có giọng nào.' : 'Kết nối API để tải giọng.'}</p>`; return; }
   $('#voiceList').innerHTML = list.map((v) => `
     <div class="voice">
       <b>${esc(v.name)}</b>
@@ -611,7 +636,7 @@ function renderResult(h) {
     </div>`;
 }
 function renderHistory() {
-  if (!S.history.length) { $('#ttsHistory').innerHTML = '<p class="muted">Chưa có bản nào.</p>'; return; }
+  if (!S.history.length) { $('#ttsHistory').innerHTML = '<p class="empty">Chưa có bản nào.</p>'; return; }
   $('#ttsHistory').innerHTML = S.history.map((h) => `
     <div class="hist">
       <div class="meta">🎤 ${esc(h.voice)} • ${esc(h.model)} • ${esc(h.fmt)} • ${(h.blob.size / 1024).toFixed(0)} KB</div>
@@ -731,7 +756,7 @@ function renderDesignPreviews() {
       ${saved ? `<div class="meta" style="margin-top:6px">Đang dùng làm giọng “${esc(D.name)}”</div>`
         : `<button class="ghost small" style="margin-top:6px" data-usegen="${esc(p.generated_voice_id)}">↺ Dùng bản này</button>`}
     </div>`;
-  }).join('') || '<p class="muted">Không có bản nghe thử.</p>';
+  }).join('') || '<p class="empty">Không có bản nghe thử.</p>';
 }
 
 $('#designBtn').onclick = async () => {
@@ -1042,7 +1067,7 @@ const voiceName = (id) => S.voices.find((v) => v.voice_id === id)?.name || id;
 
 function renderChars() {
   const stats = charStats();
-  if (!stats.length) { $('#charList').innerHTML = '<p class="muted">Chưa có nhân vật.</p>'; return; }
+  if (!stats.length) { $('#charList').innerHTML = '<p class="empty">Chưa có nhân vật.</p>'; return; }
   $('#charList').innerHTML = stats.map(([k, n]) => {
     const direct = S.mapping[k] || '';
     const inherited = !direct && resolveVoice(k);
