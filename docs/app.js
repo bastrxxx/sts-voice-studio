@@ -679,25 +679,65 @@ $('#cloneBtn').onclick = async () => {
   $('#cloneStatus').textContent = 'Đang tải lên & clone…';
   try {
     const j = await (await xi('/v1/voices/add', { method: 'POST', body: fd })).json();
-    $('#cloneStatus').textContent = '✅ Đã tạo: ' + j.voice_id;
-    toast(`Clone thành công "${name}"`, 'ok');
+    $('#cloneStatus').textContent = `✅ Đã lưu "${name}" vào tài khoản (ID ${j.voice_id})`;
     cloneFiles = []; addCloneFiles([]);
     $('#cloneName').value = ''; $('#cloneDesc').value = '';
-    await loadVoices();
+    await onVoiceCreated(j.voice_id, name, 'cloned');
   } catch (e) {
     $('#cloneStatus').textContent = '❌ ' + e.message;
     toast(e.message, 'err');
   } finally { $('#cloneBtn').disabled = false; }
 };
 
+/* Sau khi tạo giọng: tải lại danh sách để giọng mới hiện ở tab API & Giọng,
+ * bộ chọn giọng (Tạo voice) và phần gán giọng; tự chọn giọng mới ở tab Tạo voice. */
+async function onVoiceCreated(id, name, category) {
+  await loadVoices();
+  if (!S.voices.some((v) => v.voice_id === id)) {
+    S.voices.push({ voice_id: id, name, category, preview_url: null, labels: {} });
+    S.voices.sort((a, b) => a.name.localeCompare(b.name));
+    renderVoices(); renderChars(); fillVoiceSelects(); renderGenTable();
+  }
+  setTtsVoice(id);
+  toast(`Đã lưu giọng "${name}" — có ở tab API & Giọng, Tạo voice và Gán giọng`, 'ok');
+}
+
 /* ---- Voice Design ---- */
 $('#designLoud').oninput = () => { $('#designLoudV').textContent = $('#designLoud').value; };
 $('#designAuto').onchange = () => { $('#designText').disabled = $('#designAuto').checked; };
 $('#designText').disabled = true;
-let designDesc = '';
+const D = { desc: '', name: '', previews: [], savedGid: null, savedVoiceId: null };
+
+const jsonPost = (path, body) => xi(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+async function saveDesigned(gid) {
+  const body = { voice_name: D.name, voice_description: D.desc, generated_voice_id: gid };
+  let res;
+  try { res = await jsonPost('/v1/text-to-voice', body); } catch (err) {
+    if (err.status !== 404 && err.status !== 405) throw err;
+    res = await jsonPost('/v1/text-to-voice/create-voice-from-preview', body);
+  }
+  const j = await res.json().catch(() => ({}));
+  return j.voice_id;
+}
+
+function renderDesignPreviews() {
+  $('#designPreviews').innerHTML = D.previews.map((p, i) => {
+    const saved = p.generated_voice_id === D.savedGid;
+    return `<div class="voice" style="${saved ? 'border-color:var(--ok)' : ''}">
+      <b>Bản ${i + 1} ${saved ? '<span class="badge" style="background:#1d3a2a;color:var(--ok)">✓ Đã lưu</span>' : ''}</b>
+      <div class="meta">${p.duration_secs ? p.duration_secs.toFixed(1) + 's' : ''} ${esc(p.language || '')}</div>
+      <audio controls src="data:${esc(p.media_type || 'audio/mpeg')};base64,${p.audio_base_64}"></audio>
+      ${saved ? `<div class="meta" style="margin-top:6px">Đang dùng làm giọng “${esc(D.name)}”</div>`
+        : `<button class="ghost small" style="margin-top:6px" data-usegen="${esc(p.generated_voice_id)}">↺ Dùng bản này</button>`}
+    </div>`;
+  }).join('') || '<p class="muted">Không có bản nghe thử.</p>';
+}
 
 $('#designBtn').onclick = async () => {
+  const name = $('#designName').value.trim();
   const desc = $('#designDesc').value.trim();
+  if (!name) return toast('Nhập tên giọng', 'err');
   if (desc.length < 20) return toast('Mô tả cần tối thiểu 20 ký tự', 'err');
   const auto = $('#designAuto').checked, text = $('#designText').value.trim();
   if (!auto && (text.length < 100 || text.length > 1000)) return toast('Câu đọc thử cần 100–1000 ký tự (hoặc tích tự tạo)', 'err');
@@ -708,47 +748,50 @@ $('#designBtn').onclick = async () => {
   $('#designPreviews').innerHTML = '';
   try {
     let res;
-    try {
-      res = await xi('/v1/text-to-voice/design', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    } catch (e) {
+    try { res = await jsonPost('/v1/text-to-voice/design', body); } catch (e) {
       if (e.status !== 404 && e.status !== 405) throw e;
-      res = await xi('/v1/text-to-voice/create-previews', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voice_description: desc, auto_generate_text: auto, ...(auto ? {} : { text }) }) });
+      res = await jsonPost('/v1/text-to-voice/create-previews', { voice_description: desc, auto_generate_text: auto, ...(auto ? {} : { text }) });
     }
     const j = await res.json();
-    designDesc = desc;
-    const previews = j.previews || [];
-    $('#designPreviews').innerHTML = previews.map((p, i) => `
-      <div class="voice">
-        <b>Bản ${i + 1}</b>
-        <div class="meta">${p.duration_secs ? p.duration_secs.toFixed(1) + 's' : ''} ${esc(p.language || '')}</div>
-        <audio controls src="data:${esc(p.media_type || 'audio/mpeg')};base64,${p.audio_base_64}"></audio>
-        <input placeholder="Tên giọng để lưu…" data-name="${esc(p.generated_voice_id)}" style="margin-top:8px">
-        <button class="primary small" style="margin-top:6px" data-savegen="${esc(p.generated_voice_id)}">💾 Lưu giọng này</button>
-      </div>`).join('') || '<p class="muted">Không có bản nghe thử.</p>';
-    $('#designStatus').textContent = j.text ? `Câu đọc thử: “${j.text.slice(0, 120)}…”` : '✅ Xong';
+    Object.assign(D, { desc, name, previews: j.previews || [], savedGid: null, savedVoiceId: null });
+    renderDesignPreviews();
+    if (!D.previews.length) throw new Error('ElevenLabs không trả về bản nghe thử nào');
+    // Tự động lưu bản 1
+    $('#designStatus').textContent = 'Đang tự lưu bản 1…';
+    D.savedVoiceId = await saveDesigned(D.previews[0].generated_voice_id);
+    D.savedGid = D.previews[0].generated_voice_id;
+    renderDesignPreviews();
+    $('#designStatus').textContent = `✅ Đã lưu bản 1 thành giọng “${name}”` + (j.text ? ` • Câu đọc thử: “${j.text.slice(0, 80)}…”` : '');
+    if (D.savedVoiceId) await onVoiceCreated(D.savedVoiceId, name, 'generated'); else await loadVoices();
   } catch (e) {
     $('#designStatus').textContent = '❌ ' + e.message;
     toast(e.message, 'err');
   } finally { $('#designBtn').disabled = false; }
 };
+
 $('#designPreviews').onclick = async (e) => {
-  const gid = e.target.dataset.savegen;
+  const gid = e.target.dataset.usegen;
   if (!gid) return;
-  const name = document.querySelector(`[data-name="${CSS.escape(gid)}"]`).value.trim();
-  if (!name) return toast('Nhập tên giọng', 'err');
-  e.target.disabled = true;
-  const body = { voice_name: name, voice_description: designDesc, generated_voice_id: gid };
+  $$('#designPreviews [data-usegen]').forEach((b) => { b.disabled = true; });
+  $('#designStatus').textContent = 'Đang thay giọng đã lưu bằng bản mới…';
   try {
-    try {
-      await xi('/v1/text-to-voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    } catch (err) {
-      if (err.status !== 404 && err.status !== 405) throw err;
-      await xi('/v1/text-to-voice/create-voice-from-preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const newId = await saveDesigned(gid);
+    const oldId = D.savedVoiceId;
+    D.savedGid = gid; D.savedVoiceId = newId;
+    if (oldId && oldId !== newId) {
+      // xoá bản cũ để không chiếm thêm chỗ giọng trong gói
+      try { await xi('/v1/voices/' + oldId, { method: 'DELETE' }); } catch (err) { toast('Không xoá được bản cũ: ' + err.message, 'err'); }
+      Object.keys(S.mapping).forEach((k) => { if (S.mapping[k] === oldId && newId) S.mapping[k] = newId; });
+      saveMap();
     }
-    toast(`Đã lưu giọng "${name}"`, 'ok');
-    loadVoices();
-  } catch (err) { toast(err.message, 'err'); e.target.disabled = false; }
+    renderDesignPreviews();
+    $('#designStatus').textContent = `✅ Giọng “${D.name}” giờ dùng bản ${D.previews.findIndex((p) => p.generated_voice_id === gid) + 1}`;
+    if (newId) await onVoiceCreated(newId, D.name, 'generated'); else await loadVoices();
+  } catch (err) {
+    $('#designStatus').textContent = '❌ ' + err.message;
+    toast(err.message, 'err');
+    renderDesignPreviews();
+  }
 };
 
 /* ================= TAB 4: KỊCH BẢN ================= */

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>STS Voice Studio</title>
 <style>body.locked #app{display:none!important}</style>
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body class="locked">
 
@@ -177,7 +177,9 @@
 
     <div class="card">
       <h2>Thiết kế giọng từ mô tả (Voice Design)</h2>
-      <p class="muted">Mô tả giọng bạn muốn (tuổi, giới tính, chất giọng, cảm xúc, giọng vùng miền…). ElevenLabs tạo vài bản nghe thử, bạn chọn bản ưng ý rồi lưu thành giọng mới.</p>
+      <p class="muted">Mô tả giọng bạn muốn (tuổi, giới tính, chất giọng, cảm xúc, giọng vùng miền…). ElevenLabs tạo vài bản nghe thử. <b>App tự lưu bản 1 vào tài khoản</b>; muốn dùng bản khác thì bấm “Dùng bản này”, app sẽ thay bản đã lưu.</p>
+      <label>Tên giọng *</label>
+      <input id="designName" placeholder="VD: VINH HOA - thiết kế">
       <label>Mô tả giọng * (tối thiểu 20 ký tự)</label>
       <textarea id="designDesc" rows="3" placeholder="Một bé gái khoảng 8 tuổi, giọng trong trẻo nhưng kiêu kỳ, nói chậm rãi, có chút bí ẩn và ra vẻ bề trên."></textarea>
       <div class="grid2">
@@ -197,7 +199,7 @@
       <textarea id="designText" rows="3" placeholder="Để trống và tích 'tự tạo câu đọc thử' nếu muốn ElevenLabs tự viết."></textarea>
       <label class="check"><input type="checkbox" id="designAuto" checked> Tự tạo câu đọc thử</label>
       <div class="row">
-        <button id="designBtn" class="primary">🎨 Tạo bản nghe thử</button>
+        <button id="designBtn" class="primary">🎨 Tạo & tự lưu giọng</button>
         <span id="designStatus" class="muted"></span>
       </div>
       <div id="designPreviews" class="voice-grid" style="margin-top:12px"></div>
@@ -328,6 +330,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
