@@ -53,3 +53,29 @@ td.st-ok{color:var(--ok)}td.st-err{color:var(--err)}td.st-run{color:var(--warn)}
 .t{background:#222634;border:1px solid var(--line);padding:10px 14px;border-radius:8px;max-width:420px;box-shadow:0 6px 20px #0008}
 .t.err{border-color:var(--err)}.t.ok{border-color:var(--ok)}
 audio{width:100%;height:32px}
+
+/* ---- v2 ---- */
+body.locked #app{display:none}
+body:not(.locked) #login{display:none}
+#login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-card{width:100%;max-width:360px}
+.login-card h1{margin-bottom:4px}
+.full{width:100%;margin-top:14px}
+.err-text{color:var(--err);min-height:18px;margin:10px 0 0}
+header #logoutBtn{margin-left:auto}
+.small{padding:6px 10px;font-size:12px}
+.tts-layout{display:grid;grid-template-columns:1fr 340px;gap:16px}
+@media(max-width:900px){.tts-layout{grid-template-columns:1fr}}
+.tag-bar{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
+.tag-bar button{padding:3px 8px;font-size:11px;border-radius:12px}
+.hist{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:#12141c}
+.hist .meta{font-size:11px;color:var(--mut);margin-bottom:6px}
+.hist .txt{font-size:12px;margin-bottom:6px;white-space:pre-wrap;max-height:60px;overflow:auto}
+table.edit td{padding:4px 6px}
+table.edit input,table.edit textarea{padding:5px 6px;font-size:12px;border-color:transparent;background:transparent}
+table.edit input:focus,table.edit textarea:focus{border-color:var(--pri);background:#0f1117}
+table.edit textarea{resize:vertical;min-height:32px}
+table.edit td.act{white-space:nowrap}
+table.edit td.act button{padding:3px 7px;font-size:11px}
+table.edit tr.sel{background:#2a234633}
+.char-row{grid-template-columns:220px 1fr 70px 90px 40px}
