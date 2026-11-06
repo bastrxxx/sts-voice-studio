@@ -79,3 +79,26 @@ table.edit td.act{white-space:nowrap}
 table.edit td.act button{padding:3px 7px;font-size:11px}
 table.edit tr.sel{background:#2a234633}
 .char-row{grid-template-columns:220px 1fr 70px 90px 40px}
+
+/* ---- v3: voice picker & result ---- */
+.vp{position:relative;display:flex;gap:6px}
+.vp-btn{flex:1;display:flex;justify-content:space-between;align-items:center;text-align:left;background:#0f1117;overflow:hidden}
+.vp-btn span:first-child{overflow:hidden;text-overflow:ellipsis}
+.vp-play{width:42px;font-size:14px}
+.vp-panel{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:20;background:#1a1d27;border:1px solid var(--line);border-radius:10px;padding:8px;box-shadow:0 12px 30px #000a}
+.vp-tabs{display:flex;gap:4px;margin:8px 0}
+.vp-tab{padding:4px 10px;font-size:12px;background:transparent}
+.vp-tab.active{background:var(--pri);border-color:var(--pri)}
+.vp-list{max-height:340px;overflow:auto}
+.vp-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;cursor:pointer}
+.vp-item:hover{background:#262a38}
+.vp-item.sel{background:#2a2346}
+.vp-item .pbtn{width:30px;height:30px;padding:0;border-radius:50%;flex-shrink:0;font-size:11px}
+.vp-item .pbtn.playing{background:var(--pri);border-color:var(--pri)}
+.vp-item .info{flex:1;min-width:0}
+.vp-item .info b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vp-item .info small{color:var(--mut);font-size:11px}
+.result{border:1px solid var(--pri);border-radius:10px;padding:12px;margin-top:12px;background:#1b1830}
+.result .row{margin-top:8px}
+.big{padding:10px 18px;font-size:14px}
+button.playing{background:var(--pri);border-color:var(--pri)}

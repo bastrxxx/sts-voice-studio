@@ -420,7 +420,7 @@ $('#voiceList').onclick = async (e) => {
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.copy) { navigator.clipboard.writeText(b.dataset.copy); toast('Đã copy ID'); }
-  if (b.dataset.usetts) { $('#ttsVoice').value = b.dataset.usetts; $('.tab[data-tab="tts"]').click(); }
+  if (b.dataset.usetts) { setTtsVoice(b.dataset.usetts); $('.tab[data-tab="tts"]').click(); }
   if (b.dataset.del) {
     const v = S.voices.find((x) => x.voice_id === b.dataset.del);
     if (!confirm(`Xoá giọng "${v?.name}" khỏi tài khoản ElevenLabs? Không thể hoàn tác.`)) return;
@@ -439,8 +439,108 @@ function voiceOptions(sel, emptyLabel = '— chưa gán —') {
 function fillVoiceSelects() {
   const cur = $('#ttsVoice').value || getPref('ttsVoice', '');
   $('#ttsVoice').innerHTML = voiceOptions(cur, '— chọn giọng —');
+  if (cur && !S.voices.some((v) => v.voice_id === cur)) $('#ttsVoice').value = '';
+  updatePickerLabel();
+  if (!$('#vpPanel').classList.contains('hidden')) renderPicker();
 }
-$('#ttsVoice').onchange = () => savePref('ttsVoice', $('#ttsVoice').value);
+
+/* ---------- Bộ chọn giọng có nghe thử (giống ElevenLabs) ---------- */
+const player = new Audio();
+let playingId = null;
+const previewCache = {};
+const SAMPLE_TEXT = 'Xin chào, đây là giọng đọc mẫu của tôi. Bạn thấy giọng này có phù hợp với nhân vật không?';
+
+function setTtsVoice(id) {
+  $('#ttsVoice').value = id;
+  savePref('ttsVoice', id);
+  updatePickerLabel();
+}
+function updatePickerLabel() {
+  const v = S.voices.find((x) => x.voice_id === $('#ttsVoice').value);
+  $('#vpName').textContent = v ? v.name : (S.voices.length ? '— chọn giọng —' : '— kết nối API để tải giọng —');
+}
+function voiceDesc(v) {
+  const l = v.labels || {};
+  return [v.category === 'premade' ? 'Có sẵn' : v.category === 'cloned' ? 'Clone' : v.category, l.gender, l.age, l.accent, l.description || l.descriptive, l.use_case || l.use_case]
+    .filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(' · ');
+}
+function syncPlayButtons() {
+  $$('[data-pv]').forEach((b) => {
+    const on = b.dataset.pv === playingId;
+    b.classList.toggle('playing', on);
+    if (!b.dataset.loading) b.textContent = on ? '⏸' : '▶';
+  });
+  $('#vpPlay').classList.toggle('playing', playingId && playingId === $('#ttsVoice').value);
+  $('#vpPlay').textContent = playingId && playingId === $('#ttsVoice').value ? '⏸' : '▶';
+}
+player.onended = player.onpause = () => { if (player.paused) { playingId = null; syncPlayButtons(); } };
+
+async function previewVoice(id, btn) {
+  if (!id) return toast('Chọn giọng trước', 'err');
+  if (playingId === id) { player.pause(); return; }
+  player.pause();
+  const v = S.voices.find((x) => x.voice_id === id);
+  let url = v?.preview_url || previewCache[id];
+  if (!url) {
+    // Giọng clone thường chưa có bản mẫu -> tạo nhanh 1 câu ngắn bằng model hiện tại
+    const all = [btn, $('#vpPlay')].filter(Boolean);
+    all.forEach((b) => { b.dataset.loading = '1'; b.textContent = '…'; b.disabled = true; });
+    try {
+      const model = $('#ttsModel').value;
+      const typed = stripTags($('#ttsText').value).slice(0, 120).trim();
+      const res = await tts(id, typed.length >= 20 ? typed : SAMPLE_TEXT, 'mp3_44100_128', { model, vs: readVS('t', model), lang: $('#ttsLang').value });
+      url = previewCache[id] = URL.createObjectURL(await res.blob());
+    } catch (e) {
+      toast('Không tạo được bản nghe thử: ' + e.message, 'err');
+      return;
+    } finally {
+      all.forEach((b) => { delete b.dataset.loading; b.disabled = false; });
+      syncPlayButtons();
+    }
+  }
+  player.src = url;
+  playingId = id;
+  syncPlayButtons();
+  player.play().catch((e) => { playingId = null; syncPlayButtons(); toast('Không phát được: ' + e.message, 'err'); });
+}
+
+let pickerFilter = 'all';
+function renderPicker() {
+  const q = $('#vpSearch').value.trim().toLowerCase();
+  const cur = $('#ttsVoice').value;
+  const list = S.voices
+    .filter((v) => pickerFilter === 'all' || (pickerFilter === 'own' ? ownVoice(v) : !ownVoice(v)))
+    .filter((v) => !q || (v.name + ' ' + voiceDesc(v)).toLowerCase().includes(q))
+    .sort((a, b) => (ownVoice(b) - ownVoice(a)) || a.name.localeCompare(b.name));
+  $('#vpList').innerHTML = list.length ? list.map((v) => `
+    <div class="vp-item ${v.voice_id === cur ? 'sel' : ''}" data-pick="${esc(v.voice_id)}">
+      <button type="button" class="ghost pbtn" data-pv="${esc(v.voice_id)}" title="${v.preview_url ? 'Nghe bản mẫu' : 'Tạo & nghe câu mẫu'}">▶</button>
+      <div class="info"><b>${esc(v.name)}</b><small>${esc(voiceDesc(v))}${v.preview_url ? '' : ' · chưa có mẫu'}</small></div>
+      ${v.voice_id === cur ? '<span>✓</span>' : ''}
+    </div>`).join('') : `<p class="muted" style="padding:8px">${S.voices.length ? 'Không tìm thấy giọng.' : 'Kết nối API ở tab 1 để tải giọng.'}</p>`;
+  syncPlayButtons();
+}
+$('#vpBtn').onclick = () => {
+  const p = $('#vpPanel');
+  p.classList.toggle('hidden');
+  if (!p.classList.contains('hidden')) { renderPicker(); $('#vpSearch').focus(); }
+};
+$('#vpSearch').oninput = renderPicker;
+$$('.vp-tab').forEach((t) => t.onclick = () => {
+  pickerFilter = t.dataset.f;
+  $$('.vp-tab').forEach((x) => x.classList.toggle('active', x === t));
+  renderPicker();
+});
+$('#vpList').onclick = (e) => {
+  const pv = e.target.closest('[data-pv]');
+  if (pv) { e.stopPropagation(); previewVoice(pv.dataset.pv, pv); return; }
+  const item = e.target.closest('[data-pick]');
+  if (item) { setTtsVoice(item.dataset.pick); $('#vpPanel').classList.add('hidden'); }
+};
+$('#vpPlay').onclick = () => previewVoice($('#ttsVoice').value, $('#vpPlay'));
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.vp')) $('#vpPanel').classList.add('hidden');
+});
 
 /* ================= TAB 2: TẠO VOICE (TTS) ================= */
 const TAGS = ['[happy]', '[sad]', '[angry]', '[excited]', '[whispering]', '[shouting]', '[laughs]', '[chuckles]', '[sighs]', '[crying]', '[sarcastic]', '[curious]', '[calm]', '[nervous]', '[pause]'];
@@ -481,17 +581,35 @@ $('#ttsGen').onclick = async () => {
     const blob = await toAudioBlob(res, fmt);
     const voice = S.voices.find((v) => v.voice_id === vid)?.name || vid;
     const ext = fmt.startsWith('ulaw') ? 'wav' : formatInfo(fmt).ext;
-    const name = `${fsSafe(voice)}_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.${ext}`;
-    S.history.unshift({ id: Date.now(), blob, url: URL.createObjectURL(blob), name, voice, model, fmt, text: finalText });
+    const snippet = fsSafe(stripTags(finalText).slice(0, 30)).replace(/[ .]+$/, '');
+    const name = `${fsSafe(voice)}_${snippet}_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.${ext}`;
+    const h = { id: Date.now(), blob, url: URL.createObjectURL(blob), name, voice, model, fmt, text: finalText };
+    S.history.unshift(h);
     renderHistory();
+    renderResult(h);
     $('#ttsStatus').textContent = '✅ Xong';
-    $('#ttsHistory audio')?.play();
+    player.pause();
+    $('#ttsResult audio')?.play().catch(() => {});
+    if ($('#ttsAutoDl').checked) downloadBlob(h.blob, h.name);
   } catch (e) {
     $('#ttsStatus').textContent = '❌ ' + e.message;
     toast(e.message, 'err');
   } finally { $('#ttsGen').disabled = false; }
 };
 
+function renderResult(h) {
+  const box = $('#ttsResult');
+  if (!h) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.classList.remove('hidden');
+  box.innerHTML = `
+    <div class="meta muted">✅ Đã tạo xong • 🎤 ${esc(h.voice)} • ${esc(h.fmt)} • ${(h.blob.size / 1024).toFixed(0)} KB</div>
+    <audio controls src="${h.url}" style="margin-top:8px"></audio>
+    <div class="row">
+      <button class="primary big" data-dl="${h.id}">⬇ Tải về (.${esc(h.name.split('.').pop())})</button>
+      <button class="ghost" data-save="${h.id}">📁 Lưu vào thư mục xuất</button>
+      <small class="muted">${esc(h.name)}</small>
+    </div>`;
+}
 function renderHistory() {
   if (!S.history.length) { $('#ttsHistory').innerHTML = '<p class="muted">Chưa có bản nào.</p>'; return; }
   $('#ttsHistory').innerHTML = S.history.map((h) => `
@@ -506,7 +624,7 @@ function renderHistory() {
       </div>
     </div>`).join('');
 }
-$('#ttsHistory').onclick = async (e) => {
+async function onHistoryAction(e) {
   const b = e.target.closest('button');
   if (!b) return;
   const id = +(b.dataset.dl || b.dataset.save || b.dataset.rm);
@@ -518,8 +636,17 @@ $('#ttsHistory').onclick = async (e) => {
     if (!(await ensureDirPermission())) return toast('Chưa được cấp quyền ghi', 'err');
     toast('Đã lưu: ' + await writeFile('', h.name, h.blob), 'ok');
   }
-  if (b.dataset.rm) { URL.revokeObjectURL(h.url); S.history = S.history.filter((x) => x !== h); renderHistory(); }
-};
+  if (b.dataset.rm) {
+    URL.revokeObjectURL(h.url);
+    S.history = S.history.filter((x) => x !== h);
+    renderHistory();
+    if ($(`#ttsResult [data-dl="${h.id}"]`)) renderResult(null);
+  }
+}
+$('#ttsHistory').onclick = onHistoryAction;
+$('#ttsResult').onclick = onHistoryAction;
+$('#ttsAutoDl').checked = getPref('ttsAutoDl', '0') === '1';
+$('#ttsAutoDl').onchange = () => savePref('ttsAutoDl', $('#ttsAutoDl').checked ? '1' : '0');
 
 /* ================= TAB 3: CLONE ================= */
 let cloneFiles = [];

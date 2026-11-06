@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>STS Voice Studio</title>
 <style>body.locked #app{display:none!important}</style>
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body class="locked">
 
@@ -75,8 +75,10 @@
         </div>
         <div class="row" style="margin-top:12px">
           <button id="ttsGen" class="primary">🔊 Tạo giọng nói</button>
+          <label class="check" style="margin:0"><input type="checkbox" id="ttsAutoDl"> Tự động tải về khi tạo xong</label>
           <span id="ttsStatus" class="muted"></span>
         </div>
+        <div id="ttsResult" class="result hidden"></div>
         <h2 style="margin-top:20px">Lịch sử</h2>
         <div id="ttsHistory"><p class="muted">Chưa có bản nào.</p></div>
       </div>
@@ -84,7 +86,23 @@
       <div class="card">
         <h2>Cài đặt</h2>
         <label>Giọng</label>
-        <select id="ttsVoice"></select>
+        <select id="ttsVoice" hidden></select>
+        <div class="vp">
+          <button id="vpBtn" class="vp-btn" type="button">
+            <span id="vpName">— chọn giọng —</span><span class="muted">▾</span>
+          </button>
+          <button id="vpPlay" class="ghost vp-play" type="button" title="Nghe thử giọng đang chọn">▶</button>
+          <div id="vpPanel" class="vp-panel hidden">
+            <input id="vpSearch" placeholder="Tìm giọng…" autocomplete="off">
+            <div class="vp-tabs">
+              <button type="button" class="vp-tab active" data-f="all">Tất cả</button>
+              <button type="button" class="vp-tab" data-f="own">Của tôi</button>
+              <button type="button" class="vp-tab" data-f="premade">Có sẵn</button>
+            </div>
+            <div id="vpList" class="vp-list"></div>
+          </div>
+        </div>
+        <small class="muted">▶ giọng có sẵn bản mẫu sẽ phát ngay. Giọng chưa có mẫu, app tạo một câu mẫu ngắn (tốn ít ký tự).</small>
         <label>Model</label>
         <select id="ttsModel" class="model-select"></select>
         <label>Định dạng đầu ra</label>
@@ -310,6 +328,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
